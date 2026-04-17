@@ -8,8 +8,13 @@ events.db
 *.db
 sensor.py
 fog_node.py
+temp_sensor.py
+humidity_sensor.py
 webcam_test.py
 .vscode/
 .idea/
+.git/
 *.log
 .env
+backup_before_sensors/
+architecture_diagram.png

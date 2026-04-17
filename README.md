@@ -1,6 +1,6 @@
 # Drowsiness Detection — Fog & Cloud Architecture
 
-A real-time driver drowsiness detection system built on a three-tier fog and cloud architecture. The system uses a webcam as a sensor, a virtual fog node for on-device classification, and a Flask backend deployed on **AWS Elastic Beanstalk** to serve a live dashboard.
+A real-time driver drowsiness detection system built on a three-tier fog and cloud architecture. The system integrates **three distinct sensor types** — a camera (vision), a temperature sensor, and a humidity sensor — processes the data on a virtual fog node, and serves a live dashboard from a Flask backend deployed on **AWS Elastic Beanstalk**.
 
 Developed as part of the Fog and Edge Computing module coursework.
 
@@ -10,11 +10,16 @@ Developed as part of the Fog and Edge Computing module coursework.
 
 ![Architecture Diagram](architecture_diagram.png)
 
-The system follows a three-tier pattern:
+The system follows a three-tier fog and cloud pattern:
 
-1. **Sensor layer** — a webcam captures frames locally using OpenCV and MediaPipe. Three logical sensor streams are derived from the single camera feed: Eye Aspect Ratio (EAR), Mouth Aspect Ratio (MAR), and head pose angle.
-2. **Fog layer** — a virtual Python process on the local machine classifies drowsiness using rule-based thresholds and forwards only the classified event (a small JSON payload) to the cloud. Raw video never leaves the device.
-3. **Cloud layer** — a Flask web service on AWS Elastic Beanstalk receives events via `POST /data`, stores them in SQLite, and serves a real-time dashboard with Chart.js visualisations.
+1. **Sensor layer** — three sensor types generating data at configurable frequencies and dispatch rates:
+   - **Camera (vision)** — webcam captured via OpenCV, facial landmarks via MediaPipe (10 FPS processing, 0.5s dispatch)
+   - **Temperature** — simulated cabin temperature sensor (1 Hz sampling, 5s dispatch)
+   - **Humidity** — simulated cabin humidity sensor (1 Hz sampling, 5s dispatch)
+
+2. **Fog layer** — virtual Python processes on the local machine classify drowsiness using Eye Aspect Ratio (EAR), Mouth Aspect Ratio (MAR), and head pose thresholds. Only classified events and environmental readings (small JSON payloads) are forwarded to the cloud. Raw video never leaves the device.
+
+3. **Cloud layer** — a Flask web service on AWS Elastic Beanstalk receives events via `POST /data`, stores them in SQLite, and serves a real-time dashboard with Chart.js visualisations of all three sensor streams.
 
 ---
 
@@ -36,16 +41,31 @@ The system follows a three-tier pattern:
 
 ```
 drowsiness_detection/
-├── application.py           # Flask cloud backend (Elastic Beanstalk entrypoint)
-├── sensor.py                # Camera sensor + fog dispatcher
-├── fog_node.py              # EAR / MAR / head pose logic and classifier
-├── requirements.txt         # Cloud-only dependencies (Flask, gunicorn)
-├── .ebignore                # Files excluded from EB uploads
+├── application.py            # Flask cloud backend (Elastic Beanstalk entrypoint)
+├── sensor.py                 # Camera sensor (vision) + fog dispatcher
+├── temp_sensor.py            # Temperature sensor (mock environmental)
+├── humidity_sensor.py        # Humidity sensor (mock environmental)
+├── fog_node.py               # EAR / MAR / head pose logic and classifier
+├── requirements.txt          # Cloud-only dependencies (Flask, gunicorn)
+├── .ebignore                 # Files excluded from EB uploads
+├── .gitignore                # Files excluded from Git
 ├── templates/
-│   └── dashboard.html       # Live dashboard served by Flask
-├── architecture_diagram.png # System architecture image
+│   └── dashboard.html        # Live dashboard served by Flask
+├── architecture_diagram.png  # System architecture image
 └── README.md
 ```
+
+---
+
+## Sensor configuration
+
+Each sensor has independently configurable frequency and dispatch rate, satisfying the "3–5 sensor types with configurable frequency and dispatch rates" requirement.
+
+| Sensor | Type | Sample Frequency | Dispatch Rate | Source ID |
+|--------|------|------------------|---------------|-----------|
+| Camera | Vision | 10 Hz | 0.5 s | `camera_sensor_01` |
+| Temperature | Environmental | 1 Hz | 5 s | `temp_sensor_01` |
+| Humidity | Environmental | 1 Hz | 5 s | `humidity_sensor_01` |
 
 ---
 
@@ -53,7 +73,7 @@ drowsiness_detection/
 
 - **Python 3.12** (MediaPipe does not yet support 3.13+)
 - **A webcam**
-- **An AWS account** with Elastic Beanstalk access (for cloud deployment — optional if running locally only)
+- **An AWS account** with Elastic Beanstalk access (for cloud deployment)
 - **Windows / macOS / Linux** (developed and tested on Windows 11 with PowerShell)
 
 ---
@@ -83,54 +103,74 @@ source venv/bin/activate
 
 ### Step 3. Install dependencies
 
-Local development needs OpenCV and MediaPipe on top of the cloud requirements:
+Local development requires OpenCV and MediaPipe on top of the cloud requirements:
 
 ```bash
 pip install --upgrade pip
 pip install opencv-python mediapipe flask requests scipy
 ```
 
-### Step 4. Run the Flask backend
+### Step 4. Point sensors to localhost
+
+If your sensor files currently target the AWS URL, switch them back to local:
+
+```powershell
+(Get-Content sensor.py) -replace 'BACKEND_URL = "http://[^"]*"', 'BACKEND_URL = "http://localhost:5000/data"' | Set-Content sensor.py
+(Get-Content temp_sensor.py) -replace 'BACKEND_URL = "http://[^"]*"', 'BACKEND_URL = "http://localhost:5000/data"' | Set-Content temp_sensor.py
+(Get-Content humidity_sensor.py) -replace 'BACKEND_URL = "http://[^"]*"', 'BACKEND_URL = "http://localhost:5000/data"' | Set-Content humidity_sensor.py
+```
+
+### Step 5. Start the Flask backend
 
 In terminal 1:
-
 ```bash
 python application.py
 ```
+You should see `Running on http://127.0.0.1:5000`. Keep this terminal open.
 
-You should see `Running on http://127.0.0.1:5000`.
+### Step 6. Open the dashboard
 
-### Step 5. Open the dashboard
-
-In your browser, open:
-
+In your browser:
 ```
 http://localhost:5000
 ```
 
-You will see the dashboard with a "Waiting for sensor data..." message.
+You will see the dashboard with three grey sensor badges and "Waiting for sensor data..."
 
-### Step 6. Run the sensor
+### Step 7. Start all three sensors
 
-In a **second** terminal (with the virtual environment activated):
+Open **three separate terminals**, activate the virtual environment in each, then run:
 
+**Terminal 2 — camera:**
 ```bash
 python sensor.py
 ```
 
-A webcam window opens showing your face with landmark dots drawn on your eyes and mouth. The sensor will:
-- Process frames at 10 FPS (configurable via `FPS` in `sensor.py`)
-- Classify drowsiness locally in the fog node
-- POST events to the backend every 0.5 seconds (configurable via `DISPATCH_INTERVAL_SEC`)
+**Terminal 3 — temperature:**
+```bash
+python temp_sensor.py
+```
 
-### Step 7. Test drowsiness detection
+**Terminal 4 — humidity:**
+```bash
+python humidity_sensor.py
+```
 
-Watch the dashboard while you:
-- **Close your eyes for 3 seconds** → dashboard turns red with `DROWSY` status
-- **Open your mouth wide** (simulate yawning) → triggers a yawn event
-- **Open eyes normally** → returns to green `AWAKE`
+### Step 8. Watch the dashboard come alive
 
-Press **`q`** on the webcam window to stop the sensor.
+Within 5-10 seconds:
+- All three sensor badges turn green
+- The big status badge turns green AWAKE with live EAR/MAR values
+- Temperature and humidity cards show live readings with mini charts
+- Recent drowsiness events table populates
+
+### Step 9. Test drowsiness detection
+
+- **Close your eyes for 3 seconds** → status turns red `DROWSY` with reason `eyes_closed`
+- **Open your mouth wide** (simulated yawn) → triggers a yawn event
+- **Return to normal** → back to green `AWAKE`
+
+Press **`q`** on the webcam window to stop the camera sensor. Press **Ctrl+C** in each terminal to stop the others.
 
 ---
 
@@ -155,13 +195,13 @@ From inside the project folder:
 eb init
 ```
 
-Answers to the prompts:
+Prompts:
 - **Region:** pick the one closest to you (e.g. `eu-west-1` for Ireland)
 - **Application:** `[ Create new Application ]`
 - **Application name:** `drowsiness_detection`
 - **Platform:** `Python 3.12 running on 64bit Amazon Linux 2023`
 - **CodeCommit:** `n`
-- **SSH:** `n` (or `y` if you want to SSH into the instance)
+- **SSH:** `n` (or `y` if you want SSH access)
 
 ### Step 3. Create the environment and deploy
 
@@ -169,7 +209,7 @@ Answers to the prompts:
 eb create drowsiness-env --single
 ```
 
-The `--single` flag uses a single EC2 instance without a load balancer (cheaper; suitable for a basic deployment). Expect 4–7 minutes for the environment to launch.
+The `--single` flag uses a single EC2 instance (no load balancer — cheaper for a basic deployment). Expect 4–7 minutes for the environment to launch.
 
 ### Step 4. Open the live dashboard
 
@@ -177,27 +217,44 @@ The `--single` flag uses a single EC2 instance without a load balancer (cheaper;
 eb open
 ```
 
-Your browser opens to the public AWS URL (e.g. `http://drowsiness-env.eba-xxxx.eu-west-1.elasticbeanstalk.com`).
-
-### Step 5. Point the sensor at the cloud
-
-Edit the `BACKEND_URL` variable near the top of `sensor.py`:
-
-```python
-BACKEND_URL = "http://your-env-name.eba-xxxx.eu-west-1.elasticbeanstalk.com/data"
+Your browser opens the public AWS URL, e.g.:
+```
+http://drowsiness-env.eba-xxxx.eu-west-1.elasticbeanstalk.com
 ```
 
-Then run the sensor locally:
+### Step 5. Point all three sensors at the cloud URL
+
+```powershell
+(Get-Content sensor.py) -replace 'BACKEND_URL = "http://[^"]*"', 'BACKEND_URL = "http://your-env-name.eba-xxxx.eu-west-1.elasticbeanstalk.com/data"' | Set-Content sensor.py
+(Get-Content temp_sensor.py) -replace 'BACKEND_URL = "http://[^"]*"', 'BACKEND_URL = "http://your-env-name.eba-xxxx.eu-west-1.elasticbeanstalk.com/data"' | Set-Content temp_sensor.py
+(Get-Content humidity_sensor.py) -replace 'BACKEND_URL = "http://[^"]*"', 'BACKEND_URL = "http://your-env-name.eba-xxxx.eu-west-1.elasticbeanstalk.com/data"' | Set-Content humidity_sensor.py
+```
+
+Replace `your-env-name.eba-xxxx.eu-west-1.elasticbeanstalk.com` with your actual Elastic Beanstalk CNAME from Step 4.
+
+### Step 6. Run the three sensors locally against the AWS backend
 
 ```bash
 python sensor.py
+python temp_sensor.py
+python humidity_sensor.py
 ```
 
-Your webcam data will now stream to the AWS backend, and the dashboard URL will update live — accessible from any device on the internet.
+Your webcam data and environmental readings now stream to AWS, and the cloud dashboard is accessible from any device on the internet.
 
-### Step 6. Clean up (important to avoid charges)
+### Step 7. Redeploying after code changes
 
-After your demo / grading is done:
+If you modify `application.py` or `templates/dashboard.html`:
+
+```bash
+eb deploy drowsiness-env
+```
+
+Takes about 2-3 minutes.
+
+### Step 8. Clean up (important to avoid charges)
+
+After your demo or grading is done:
 
 ```bash
 eb terminate drowsiness-env
@@ -214,7 +271,7 @@ Key parameters you can tune in `sensor.py`:
 ```python
 FPS = 10                          # Camera processing frequency
 DISPATCH_INTERVAL_SEC = 0.5       # How often to send to the backend
-BACKEND_URL = "http://..."        # Cloud endpoint
+BACKEND_URL = "http://..."        # Backend endpoint (local or AWS)
 ```
 
 Drowsiness thresholds in `fog_node.py`:
@@ -222,21 +279,30 @@ Drowsiness thresholds in `fog_node.py`:
 ```python
 EAR_THRESHOLD = 0.22              # Eyes considered closed below this
 EAR_CONSEC_FRAMES = 15            # Frames of closure before marking drowsy
-MAR_THRESHOLD = 0.6               # Mouth open (yawn) above this
+MAR_THRESHOLD = 0.6               # Mouth considered open (yawn) above this
 MAR_CONSEC_FRAMES = 10
+```
+
+Environmental sensor parameters (`temp_sensor.py`, `humidity_sensor.py`):
+
+```python
+SAMPLE_FREQ_HZ = 1.0              # How often to generate a reading
+DISPATCH_INTERVAL_SEC = 5         # How often to send to the backend
 ```
 
 ---
 
 ## API endpoints
 
-| Method | Path       | Description                                 |
-| ------ | ---------- | ------------------------------------------- |
-| GET    | `/`        | Serves the live dashboard                   |
-| POST   | `/data`    | Fog node posts drowsiness events here       |
-| GET    | `/events`  | Returns the last 50 events as JSON          |
-| GET    | `/stats`   | Returns aggregate statistics                |
-| GET    | `/health`  | Health check endpoint                       |
+| Method | Path            | Description                                              |
+| ------ | --------------- | -------------------------------------------------------- |
+| GET    | `/`             | Serves the live dashboard                                |
+| POST   | `/data`         | All sensors post events / readings here                  |
+| GET    | `/events`       | Returns recent drowsiness events (camera)                |
+| GET    | `/environment`  | Returns recent temperature and humidity readings         |
+| GET    | `/sensors`      | Lists sensors that posted in the last minute             |
+| GET    | `/stats`        | Returns aggregate statistics                             |
+| GET    | `/health`       | Health check endpoint                                    |
 
 ---
 
@@ -244,9 +310,13 @@ MAR_CONSEC_FRAMES = 10
 
 **MediaPipe fails to install** — you're probably on Python 3.13+. Install Python 3.12 and recreate the virtual environment with `py -3.12 -m venv venv`.
 
-**Backend unreachable in sensor console** — Flask is not running. Start it in a separate terminal with `python application.py`.
+**Backend unreachable in sensor console** — Flask is not running or your `BACKEND_URL` points to the wrong address. Check all three sensor files with `Select-String -Path sensor.py, temp_sensor.py, humidity_sensor.py -Pattern "BACKEND_URL"`.
 
-**Dashboard shows "No recent data"** — sensor is not running or cannot reach the backend. Check the `BACKEND_URL` in `sensor.py`.
+**Dashboard shows "No recent data"** — sensors are not running or cannot reach the backend. Make sure all three sensor terminals are alive.
+
+**Status badge stuck on "Waiting for sensor data..."** — the camera sensor is not reaching the backend. Hard-refresh the browser with Ctrl+Shift+R and confirm the sensor terminal shows an incrementing `Sent:` counter.
+
+**`eb deploy` fails with "Source bundle exceeds maximum allowed size"** — your `.gitignore` or `.ebignore` is not excluding the `venv/` folder. Run `git rm -r --cached venv` and commit.
 
 **`eb create` fails with IAM errors** — your IAM user needs `AdministratorAccess`. Learner Lab or restricted accounts often block Elastic Beanstalk role creation.
 

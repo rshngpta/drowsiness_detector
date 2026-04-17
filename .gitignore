@@ -10,3 +10,4 @@ backup_before_sensors/
 .idea/
 *.log
 .env
+architecture_diagram.png
