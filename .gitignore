@@ -1,5 +1,12 @@
-
-# Elastic Beanstalk Files
-.elasticbeanstalk/*
-!.elasticbeanstalk/*.cfg.yml
-!.elasticbeanstalk/*.global.yml
+﻿venv/
+__pycache__/
+*.pyc
+*.pyo
+events.db
+*.db
+.elasticbeanstalk/
+backup_before_sensors/
+.vscode/
+.idea/
+*.log
+.env
