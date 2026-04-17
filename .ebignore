@@ -1,0 +1,15 @@
+﻿venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+events.db
+*.db
+sensor.py
+fog_node.py
+webcam_test.py
+.vscode/
+.idea/
+*.log
+.env
